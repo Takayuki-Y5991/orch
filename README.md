@@ -114,14 +114,45 @@ Edit the codex model/effort flags and anything else freely — orch does not par
 
 Env: `ORCH_DIR` (default `.orch`; overridden by `--dir`).
 
+## Isolated full-auto mode (`orch-box`)
+
+By default each agent asks for permission before every command, which stalls an
+autonomous squad. To run the squad **full-auto** (no prompts) safely, run the whole
+tmux session inside a Docker container — the container (namespaces + cgroups +
+Docker's default seccomp-BPF profile) is the isolation boundary, so unattended
+agents can't touch the host. Only the chosen workspace is mounted; the host
+filesystem is otherwise invisible.
+
+```bash
+docker/orch-box build              # build the image (claude + codex + tmux + orch)
+cd ~/my-project
+docker/orch-box up                 # start the box on $PWD, bring up the squad full-auto
+docker/orch-box attach             # attach (lands on the human pane)
+#   inside: orch say "…", orch tell workerN "…", orch broadcast "…"
+docker/orch-box down               # tear down + restore workspace file ownership
+```
+
+Notes:
+- The host's `orch init` config stays **prompt-enabled (safe)**; the dangerous
+  flags (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`)
+  live only in the config `orch-box` generates *inside* the container.
+- Credentials are **copied** into the running container (not bind-mounted), so token
+  refreshes stay in the box and never write back to the host: `~/.claude/.credentials.json`,
+  `~/.claude.json`, `~/.codex/auth.json`.
+- The container has **outbound network** (agents need their APIs); filesystem blast
+  radius is the mounted workspace only. Add egress policy (eBPF: Tetragon/Falco) to
+  constrain the network too.
+
 ## Source files
 
 | File | Role |
 |---|---|
 | `src/config.nim` | TOML config read/write; default config / conductor generation |
 | `src/tmux.nim` | tmux wrapper; pure command builders separated from execution |
-| `src/orch.nim` | CLI parsing (abus style) and subcommand dispatch |
+| `src/orch.nim` | CLI parsing and subcommand dispatch |
 | `tests/test_orch.nim` | Pins config parsing, layout building, and send-keys assembly |
+| `docker/Dockerfile` | Image: tmux + orch (static) + claude/codex CLIs |
+| `docker/orch-box` | Launcher: isolated full-auto squad (build/up/attach/down) |
 
 ## Limitations / future
 
