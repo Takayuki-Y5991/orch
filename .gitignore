@@ -1,0 +1,10 @@
+# build artifact (nimble build / nim c -o:orch)
+/orch
+# compiled test binary
+/tests/test_orch
+# nim build cache
+nimcache/
+# runtime workspace
+.orch/
+# local Claude Code settings
+.claude/settings.local.json
