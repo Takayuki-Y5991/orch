@@ -13,6 +13,7 @@ var tmpCounter {.global.}: int = 0
 type UpStep* = object
   args*: seq[string]    # @po/@pr/@ph/@pw2/@pw3 are pane-id placeholders (resolved at run time)
   capture*: string      # "" = capture nothing; otherwise store stdout (new pane id) under this key
+  fatal*: bool          # if true, a non-zero exit aborts runUp (identity steps); cosmetic steps are non-fatal
 
 proc paneCmd(launch, shell: string): seq[string] =
   ## argv to run in a pane. Empty launch -> a plain shell. Otherwise
@@ -31,7 +32,7 @@ proc buildUpCommands*(s: Settings, shell = getEnv("SHELL", "/bin/bash")): seq[Up
                  paneCmd(s.launchFor("orchestrator"), shell), capture: "@po"),
     # -d: don't make the new pane active (avoids touching the terminal/stdin, so
     #     it won't block when run from a non-tty context). Panes are addressed by
-    #     title, not by active state.
+    #     their @orch_role user option, not by active state.
     UpStep(args: @["split-window", "-d", "-h", "-t", "@po", "-P", "-F", "#{pane_id}"] &
                  paneCmd(s.launchFor("worker1"), shell), capture: "@pr"),
     UpStep(args: @["split-window", "-d", "-v", "-t", "@po", "-P", "-F", "#{pane_id}"] &
@@ -40,14 +41,19 @@ proc buildUpCommands*(s: Settings, shell = getEnv("SHELL", "/bin/bash")): seq[Up
                  paneCmd(s.launchFor("worker2"), shell), capture: "@pw2"),
     UpStep(args: @["split-window", "-d", "-v", "-t", "@pw2", "-P", "-F", "#{pane_id}"] &
                  paneCmd(s.launchFor("worker3"), shell), capture: "@pw3"),
-    UpStep(args: @["select-pane", "-t", "@po", "-T", "orchestrator"], capture: ""),
-    UpStep(args: @["select-pane", "-t", "@pr", "-T", "worker1"], capture: ""),
-    UpStep(args: @["select-pane", "-t", "@ph", "-T", "human"], capture: ""),
-    UpStep(args: @["select-pane", "-t", "@pw2", "-T", "worker2"], capture: ""),
-    UpStep(args: @["select-pane", "-t", "@pw3", "-T", "worker3"], capture: ""),
-    # Show pane titles on the borders (cosmetic; non-fatal if it fails).
+    # Stamp each pane's role into the @orch_role *pane user option*. Unlike
+    # #{pane_title} (which the program inside the pane overwrites via OSC title
+    # escapes — claude shows "✳ Claude Code", a shell shows the cwd), user options
+    # are owned by tmux and never touched by the pane's program, so role lookup
+    # stays stable. Identity steps are fatal: a missing role makes `tell` unusable.
+    UpStep(args: @["set-option", "-p", "-t", "@po", "@orch_role", "orchestrator"], fatal: true),
+    UpStep(args: @["set-option", "-p", "-t", "@pr", "@orch_role", "worker1"], fatal: true),
+    UpStep(args: @["set-option", "-p", "-t", "@ph", "@orch_role", "human"], fatal: true),
+    UpStep(args: @["set-option", "-p", "-t", "@pw2", "@orch_role", "worker2"], fatal: true),
+    UpStep(args: @["set-option", "-p", "-t", "@pw3", "@orch_role", "worker3"], fatal: true),
+    # Show the role on the pane borders (cosmetic; non-fatal if it fails).
     UpStep(args: @["set-window-option", "-t", sess, "pane-border-status", "top"], capture: ""),
-    UpStep(args: @["set-window-option", "-t", sess, "pane-border-format", " #{pane_title} "], capture: ""),
+    UpStep(args: @["set-window-option", "-t", sess, "pane-border-format", " #{@orch_role} "], capture: ""),
   ]
 
 proc sendKeysCmds*(paneId, text: string): seq[seq[string]] =
@@ -94,21 +100,25 @@ proc runUp*(s: Settings) =
     for i, a in step.args:
       args[i] = ids.getOrDefault(a, a)   # a placeholder -> real id, otherwise unchanged
     let res = tmuxExec(args)
-    if res.code != 0 and step.capture.len > 0:
+    # A step aborts up if it must succeed: capture steps (we need the pane id) and
+    # fatal identity steps (@orch_role). Cosmetic steps (border) are ignored.
+    if res.code != 0 and (step.capture.len > 0 or step.fatal):
       raise newException(IOError, "tmux " & args.join(" ") & " failed:\n" & res.output)
     if step.capture.len > 0:
       ids[step.capture] = res.output.strip
 
-proc paneIdByTitle*(session, title: string): string =
-  ## Return the pane id whose title matches, or "" if not found.
-  let res = tmuxExec(["list-panes", "-s", "-t", session, "-F", "#{pane_id} #{pane_title}"])
+proc paneIdByRole*(session, role: string): string =
+  ## Return the pane id whose @orch_role user option matches, or "" if not found.
+  ## Reads the role from a tmux user option (not #{pane_title}), so it survives the
+  ## pane's program rewriting its terminal title.
+  let res = tmuxExec(["list-panes", "-s", "-t", session, "-F", "#{pane_id} #{@orch_role}"])
   if res.code != 0: return ""
   for line in res.output.splitLines():
     let ln = line.strip
     if ln.len == 0: continue
     let sp = ln.find(' ')
     if sp < 0: continue
-    if ln[sp+1 .. ^1].strip == title: return ln[0 ..< sp]
+    if ln[sp+1 .. ^1].strip == role: return ln[0 ..< sp]
   return ""
 
 proc sendKeys*(paneId, text: string) =
@@ -123,5 +133,7 @@ proc killSession*(session: string) =
     raise newException(IOError, "kill-session failed:\n" & res.output)
 
 proc listPanes*(session: string): string =
+  ## Show the role from @orch_role (stable), plus the live #{pane_title} the inner
+  ## program is showing, so it's clear which agent occupies each role's pane.
   tmuxExec(["list-panes", "-s", "-t", session,
-            "-F", "#{pane_id}  #{pane_title}  [#{pane_current_command}]"]).output
+            "-F", "#{pane_id}  #{@orch_role}  [#{pane_current_command}]  #{pane_title}"]).output

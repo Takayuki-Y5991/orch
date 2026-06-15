@@ -28,10 +28,15 @@ style.
   delegates to the workers in turn with `orch tell workerN "..."`, then integrates
   the results and reports back. Its prompt lives in `.orch/conductor.md`.
 - **Dispatch is tmux `send-keys` injection.** The body (literal) and Enter are sent
-  as two separate keystrokes, so messages with newlines or `--foo` are safe.
-- **Addressing is by pane title.** tmux renumbers pane indices on split, so each
-  pane gets a title via `select-pane -T <role>` and `orch tell` resolves
-  title -> pane id with `list-panes`.
+  as two separate keystrokes, so messages with newlines or `--foo` are safe. The CLI
+  also stops option parsing at the role, so everything after `tell <role>` is the
+  message verbatim (put options like `--dir` before the role).
+- **Addressing is by the `@orch_role` pane user option.** tmux renumbers pane indices
+  on split, and `#{pane_title}` is unreliable because the program inside the pane
+  rewrites its terminal title (claude shows `✳ Claude Code`, a shell shows the cwd).
+  So each pane is stamped with `set-option -p @orch_role <role>` — a tmux-owned user
+  option no program can clobber — and `orch tell` resolves role -> pane id by reading
+  `#{@orch_role}` with `list-panes`. (Requires tmux 3.0+ for per-pane options.)
 - **orch does not interpret launch commands.** It just runs the configured command
   string in each pane, so swapping claude -> gemini is a config edit, nothing more.
 
@@ -101,7 +106,7 @@ Edit the codex model/effort flags and anything else freely — orch does not par
 | `orch init [--dir DIR] [--force]` | Create the workspace with config and conductor prompt |
 | `orch up` (alias `start`) | Bring up the 5-pane layout |
 | `orch attach` | Attach to the running session |
-| `orch tell <role> <msg...>` | Send to a role (pane title) |
+| `orch tell <role> <msg...>` | Send to a role (resolved via the pane's `@orch_role`); text after `<role>` is verbatim |
 | `orch say <msg...>` | Send to the orchestrator |
 | `orch broadcast <msg...>` (alias `all`) | Send to worker1 -> worker2 -> worker3 |
 | `orch status` (alias `ps`) | Show state |
