@@ -11,7 +11,8 @@ const
   DefaultDir* = ".orch"
   ConfigName* = "config.toml"
   ConductorName* = "conductor.md"
-  # The v1 layout is a fixed 5-pane set. Role names (= pane titles), in order.
+  # The v1 layout is a fixed 5-pane set. Role names (each stamped onto its pane's
+  # @orch_role user option), in order.
   Roles* = ["orchestrator", "worker1", "worker2", "worker3", "human"]
   Workers* = ["worker1", "worker2", "worker3"]
 
