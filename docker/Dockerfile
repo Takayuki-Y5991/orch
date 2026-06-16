@@ -22,9 +22,14 @@ RUN nimble build -d:release --passL:-static -y \
 FROM node:24-bookworm-slim
 # IS_SANDBOX=1: this image is an externally-sandboxed environment, so Claude Code
 # permits --dangerously-skip-permissions to run as root inside it.
+# LANG/LC_ALL=C.UTF-8: without a UTF-8 locale bash/readline can't accept multibyte
+# input (e.g. Japanese) in the human pane. C.UTF-8 is built into glibc — no
+# `locales` package needed.
 ENV DEBIAN_FRONTEND=noninteractive \
     TERM=xterm-256color \
-    IS_SANDBOX=1
+    IS_SANDBOX=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tmux git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
