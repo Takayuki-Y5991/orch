@@ -136,9 +136,15 @@ Notes:
 - The host's `orch init` config stays **prompt-enabled (safe)**; the dangerous
   flags (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`)
   live only in the config `orch-box` generates *inside* the container.
+- **Nothing is written into your workspace.** orch's own config/conductor live
+  container-local (`/opt/orchbox/.orch`), so the mounted dir is never modified and
+  any existing `.orch/` of yours is left untouched.
 - Credentials are **copied** into the running container (not bind-mounted), so token
   refreshes stay in the box and never write back to the host: `~/.claude/.credentials.json`,
   `~/.claude.json`, `~/.codex/auth.json`.
+- The agents' one-time gates are handled automatically: `IS_SANDBOX=1` lets Claude
+  run as root in the box, folder-trust is pre-seeded, and the "Bypass Permissions"
+  dialog is auto-accepted — so the squad comes up unattended.
 - The container has **outbound network** (agents need their APIs); filesystem blast
   radius is the mounted workspace only. Add egress policy (eBPF: Tetragon/Falco) to
   constrain the network too.

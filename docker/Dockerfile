@@ -20,15 +20,21 @@ RUN nimble build -d:release --passL:-static -y \
 
 # ---- stage 2: runtime with tmux + the agent CLIs ----
 FROM node:24-bookworm-slim
+# IS_SANDBOX=1: this image is an externally-sandboxed environment, so Claude Code
+# permits --dangerously-skip-permissions to run as root inside it.
 ENV DEBIAN_FRONTEND=noninteractive \
     TERM=xterm-256color \
-    CHOOSENIM_NO_ANALYTICS=1
+    IS_SANDBOX=1
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tmux git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 # Agent CLIs. Pin nothing — get current releases at build time.
 RUN npm install -g @anthropic-ai/claude-code @openai/codex \
- && npm cache clean --force
+ && npm cache clean --force \
+ # Claude Code looks for its own CLI at ~/.local/bin/claude; point it at the npm
+ # install so it doesn't warn "claude command ... missing or broken".
+ && mkdir -p /root/.local/bin \
+ && ln -sf /usr/local/bin/claude /root/.local/bin/claude
 COPY --from=orchbuild /src/orch /usr/local/bin/orch
 WORKDIR /work
 CMD ["sleep", "infinity"]
