@@ -41,5 +41,7 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex \
  && mkdir -p /root/.local/bin \
  && ln -sf /usr/local/bin/claude /root/.local/bin/claude
 COPY --from=orchbuild /src/orch /usr/local/bin/orch
+# tmux defaults (mouse on, scrollback) so the human can click between panes.
+COPY docker/tmux.conf /root/.tmux.conf
 WORKDIR /work
 CMD ["sleep", "infinity"]
